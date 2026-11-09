@@ -49,9 +49,9 @@ argo=out/alpha-01/argo
 test "$(count $flux "*")" -eq 10
 test ! -e $flux/ocirepository-set-system.yaml
 # dependsOn skips the unreleased set
-test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-set-platform.yaml)" = "set-rbac"
-test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-set-policy.yaml)" = "set-platform"
-test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-set-tenants.yaml)" = "set-policy"
+test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-set-policy.yaml)" = "set-rbac"
+test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-set-platform.yaml)" = "set-policy"
+test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-set-tenants.yaml)" = "set-platform"
 test "$(yq '.spec.dependsOn' $flux/kustomization-set-rbac.yaml)" = "null"
 test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-argo-apps.yaml)" = "set-tenants"
 test "$(yq '.spec.ref.digest' $flux/ocirepository-set-platform.yaml)" = "$d2"
