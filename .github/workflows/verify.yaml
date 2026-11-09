@@ -10,7 +10,8 @@ name: Verify
 #      repository has kind=app
 #   4. for every changed version file: the tag resolves to the digest, the signature, workflow
 #      identity and source repository (the registration's repo) check out
-#   5. Kyverno CLI over the referenced manifests with the policy set the cluster runs today
+#   5. Kyverno CLI over the changed app manifests with the policy set the cluster runs today
+#      (platform-components' sets are checked at their source, scripts/kyverno-check.sh there)
 #   6. object diff base -> head as a PR comment
 #
 # Tools: gitops' own devenv (cue, kubeconform, kyverno, python, yq), cosign and oras from pinned
@@ -198,10 +199,34 @@ jobs:
           bash "$RUNNER_TEMP/collect.sh" "$GITHUB_WORKSPACE/base" "$RUNNER_TEMP/apps-base.json" "$RUNNER_TEMP/diff/base/artifacts" 0 || true
 
       - name: Kyverno policies of the running policy set
+        # App manifests only: platform-components' sets were checked at their source with every
+        # policy, the CRDs and the component ServiceAccounts (its scripts/kyverno-check.sh).
+        # Policies that read request.userInfo judge component and deploy ServiceAccounts, not the
+        # objects of an app, and the CLI cannot evaluate them without one: they are left out.
+        # Objects of custom kinds are left out too (no CRDs here; the tenant policies look at
+        # built-in kinds) and listed. Every run must end with fail: 0 and error: 0.
         run: |
           set -euo pipefail
           shopt -s nullglob
           status=0
+          mapfile -t resources < <(find "$RUNNER_TEMP/diff/head/artifacts" -mindepth 1 -maxdepth 1 -type d ! -name 'platform-components-*' -print0 2>/dev/null |
+            xargs -0 -r -I{} find {} -type f -name '*.yml' | sort)
+          if [[ ${#resources[@]} -eq 0 ]]; then
+            echo "::notice::no changed app manifests; platform sets are checked in platform-components"
+            exit 0
+          fi
+          builtin='^(v1|(apps|batch|policy|autoscaling|networking\.k8s\.io|rbac\.authorization\.k8s\.io|discovery\.k8s\.io|scheduling\.k8s\.io|storage\.k8s\.io|coordination\.k8s\.io)/[a-z0-9]+)$'
+          checked=(); skipped=()
+          for r in "${resources[@]}"; do
+            if [[ $(yq '.apiVersion' "$r") =~ $builtin ]]; then checked+=(--resource "$r"); else skipped+=("$(yq '.kind' "$r")"); fi
+          done
+          if [[ ${#skipped[@]} -gt 0 ]]; then
+            echo "not checked (custom kinds): $(printf '%s\n' "${skipped[@]}" | sort | uniq -c | awk '{printf "%s x%s, ", $2, $1}')"
+          fi
+          if [[ ${#checked[@]} -eq 0 ]]; then
+            echo "::notice::no app objects of built-in kinds to check"
+            exit 0
+          fi
           for rel in base/clusters/*/releases.json; do
             cluster=$(basename "$(dirname "$rel")")
             digest=$(jq -r '.policy.digest // empty' "$rel")
@@ -212,21 +237,24 @@ jobs:
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
             dir="$RUNNER_TEMP/policy-${cluster}"; mkdir -p "$dir"
             (cd "$dir" && oras pull "${REGISTRY}/platform-components/${cluster}-policy@${digest}" > /dev/null && tar -xzf ./*.tar.gz)
-            mapfile -t policies < <(grep -rlE '^apiVersion: (policies\.)?kyverno\.io/' "$dir" || true)
-            if [[ ${#policies[@]} -eq 0 ]]; then
-              echo "::notice::${cluster}: the policy set holds no Kyverno policies"
+            policies="$RUNNER_TEMP/policies-${cluster}.yaml"
+            find "$dir" -name '*.yaml' -print0 | xargs -0 yq 'select(.apiVersion == "policies.kyverno.io/*") | select(to_json | test("request\\.userInfo") | not)' > "$policies"
+            if [[ ! -s $policies ]]; then
+              echo "::notice::${cluster}: the policy set holds no applicable Kyverno policies"
               continue
             fi
-            mapfile -t resources < <(find "$RUNNER_TEMP/diff/head/artifacts" -type f -name '*.yml' 2>/dev/null)
-            if [[ ${#resources[@]} -eq 0 ]]; then
-              echo "::notice::no changed manifests to check"
-              continue
+            out="$RUNNER_TEMP/kyverno-${cluster}.txt"
+            # kyverno apply exits 1 on errors and failures alike: the summary line decides.
+            (cd head && devenv shell -- kyverno apply "$policies" "${checked[@]}") > "$out" 2>&1 || true
+            summary=$(grep -E '^pass: [0-9]+, fail: [0-9]+' "$out" | tail -1 || true)
+            if [[ -z $summary ]]; then
+              cat "$out"; echo "::error::${cluster}: kyverno did not complete"; status=1; continue
             fi
-            args=(); for r in "${resources[@]}"; do args+=(--resource "$r"); done
-            # Policies that read the admission request can't be evaluated by the CLI and show up as
-            # errors; only failures fail the step (same rule as platform-components' kyverno-check.sh).
-            (cd head && devenv shell -- kyverno apply "${policies[@]}" "${args[@]}") | tee "$RUNNER_TEMP/kyverno.txt" || status=1
-            if grep -q ' failed:' "$RUNNER_TEMP/kyverno.txt"; then status=1; fi
+            if [[ ! $summary =~ fail:\ 0,.*error:\ 0, ]]; then
+              grep -E -A3 'failed:|error:|^Error' "$out" || cat "$out"
+              echo "::error::${cluster}: ${summary}"; status=1; continue
+            fi
+            echo "${cluster}: ${summary}"
           done
           exit "$status"
 
