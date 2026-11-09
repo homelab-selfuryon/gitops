@@ -17,7 +17,10 @@ count() { find "$1" -maxdepth 1 -type f -name "$2" | wc -l; }
 d1="sha256:$(printf '1%.0s' {1..64})"
 d2="sha256:$(printf '2%.0s' {1..64})"
 
-# --- 1. nothing released: no Applications, no set objects
+# --- 1. nothing released: no Applications, no set objects. The copy starts from the repository's
+# real versions, so every version file is reset first.
+for f in apps/*/*/staging.json apps/*/*/prod.json; do echo '{}' >"$f"; done
+for f in clusters/*/releases.json; do jq 'map_values({})' "$f" >"$f.tmp" && mv "$f.tmp" "$f"; done
 cue vet -c ./...
 cue cmd render >/dev/null
 test "$(count out/alpha-01/flux "*")" -eq 2   # argo-apps + kustomization.yaml
