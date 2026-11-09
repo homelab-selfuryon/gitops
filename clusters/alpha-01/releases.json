@@ -8,12 +8,12 @@
     "version": "467b6372d836b9a9"
   },
   "platform": {
-    "digest": "sha256:c6879574722ab667072b97e32e14b9f695918ff95c78e09d09865c634f892fb1",
-    "version": "16e56be343ee4441"
+    "digest": "sha256:36bf7a274decad5baabacf9f57b185f25751fe0224759fe42cff7883143214d9",
+    "version": "3c2e56194269856b"
   },
   "policy": {
-    "digest": "sha256:d4a1e7482419fccab2e326a26065e178b9208811a755d11a23e79ba97d2afcfc",
-    "version": "2ae0eaa8ddf1eb73"
+    "digest": "sha256:ae0a67e94c9998a30a714d15afde2616bc9335814963e41d3c0579ef498ba7f3",
+    "version": "4df8fb195f172333"
   },
   "tenants": {
     "digest": "sha256:668a4f70311e07e98bb78145757795ab8c5ab1fa493ed1d7d124ede293ddcf12",
