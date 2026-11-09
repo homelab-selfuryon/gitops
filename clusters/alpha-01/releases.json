@@ -1,7 +1,22 @@
 {
-  "rbac": {},
-  "system": {},
-  "platform": {},
-  "policy": {},
-  "tenants": {}
+  "rbac": {
+    "digest": "sha256:64bc4ae53070b356163c363b01acff64d08a08a2e6ebb40c521a2070195189ec",
+    "version": "9fe7af38cd82233b"
+  },
+  "system": {
+    "digest": "sha256:2197d163fed9b1eb167e0d46906c14de24c28dbd19de3bb2678dce3a169bcc2a",
+    "version": "ca9480bc98fb3578"
+  },
+  "platform": {
+    "digest": "sha256:c0d8a1dafca5e1bb49793a02a85a052d3de77f77ec48a41f7b2a4997254d3ac8",
+    "version": "d87bb030e8d432d2"
+  },
+  "policy": {
+    "digest": "sha256:c40afd8e88ebf280a34882d87a7be3ceb2fe63e91b34c54d7ab68f58a496d9c2",
+    "version": "fd9effd7edbb7e62"
+  },
+  "tenants": {
+    "digest": "sha256:668a4f70311e07e98bb78145757795ab8c5ab1fa493ed1d7d124ede293ddcf12",
+    "version": "2253390fd35d35af"
+  }
 }
