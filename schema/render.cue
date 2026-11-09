@@ -128,7 +128,7 @@ package schema
 				kind:       "Application"
 				metadata: {
 					name:      "\(s.name)-\(e)"
-					namespace: "argocd"
+					namespace: "argocd-system"
 					labels:    _labels & {"\(#Prefix)/env": e}
 				}
 				spec: {
@@ -153,7 +153,7 @@ package schema
 				kind:       "ApplicationSet"
 				metadata: {
 					name:      "\(s.name)-preview"
-					namespace: "argocd"
+					namespace: "argocd-system"
 					labels:    _labels & {"\(#Prefix)/env": "preview"}
 				}
 				spec: {
