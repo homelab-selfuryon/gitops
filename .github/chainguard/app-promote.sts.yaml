@@ -1,0 +1,16 @@
+# octo-sts trust policy `app-promote`: the token an app's promote workflow uses to open the
+# prod PR (apps/<team>/<app>/prod.json). No auto-merge: the team approves through CODEOWNERS.
+#
+# Only app-promote.yaml of github-workflows, started by hand (workflow_dispatch) on a `v*` tag, in
+# the `prod` GitHub Environment of a repository of this org.
+issuer: https://token.actions.githubusercontent.com
+subject_pattern: repo:homelab-selfuryon@353728095/[a-z][a-z0-9-]{1,40}@[0-9]+:environment:prod
+claim_pattern:
+  repository_owner: homelab-selfuryon
+  repo_property_kind: app
+  event_name: workflow_dispatch
+  ref: refs/tags/v.+
+  job_workflow_ref: homelab-selfuryon/github-workflows/\.github/workflows/app-promote\.yaml@.+
+permissions:
+  contents: write
+  pull_requests: write

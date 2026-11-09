@@ -1,0 +1,8 @@
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # Our own reusable workflows are called by tag until the first release exists; Renovate then
+        # pins them to a SHA (a SHA satisfies ref-pin as well).
+        homelab-selfuryon/github-workflows/*: ref-pin
+        "*": hash-pin

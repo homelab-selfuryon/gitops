@@ -1,0 +1,84 @@
+name: Publish
+
+# A merge to main publishes the render per cluster as an OCI artifact and signs it:
+#
+#   ghcr.io/homelab-selfuryon/gitops/<cluster>:<git-sha> and :main   (flux/ and argo/)
+#
+# Flux pulls `main` through the `gitops` OCIRepository, verifies the signature and applies ./flux.
+# The signing job is defined in THIS file, not in a reusable workflow: the certificate subject is
+# https://github.com/homelab-selfuryon/gitops/.github/workflows/publish.yaml@refs/heads/main, which is
+# what Flux verifies. A workflow on any other branch cannot produce an artifact Flux accepts.
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+env:
+  DEVENV_VERSION: v2.4.0
+  REGISTRY: ghcr.io/homelab-selfuryon
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write # push the artifacts
+      id-token: write # keyless cosign signing
+    concurrency:
+      group: gitops-publish
+      cancel-in-progress: false # every merge is published, in order
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: devenv # read-only: the public devenv cache, no auth token
+      - name: Install devenv
+        run: |
+          nix profile install --accept-flake-config --profile "$RUNNER_TEMP/devenv" "github:cachix/devenv/${DEVENV_VERSION}#devenv"
+          echo "$RUNNER_TEMP/devenv/bin" >> "$GITHUB_PATH"
+
+      # ~/.docker/config.json: read by buildx, oras and cue (platform-kit comes from GHCR).
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Vet and render
+        run: |
+          set -euo pipefail
+          devenv shell -- cue vet -c ./...
+          devenv shell -- cue cmd render
+
+      - name: Push and sign one artifact per cluster
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          for dir in out/*/; do
+            cluster=$(basename "$dir")
+            [[ "$cluster" =~ ^[a-z][a-z0-9-]{1,40}$ ]]
+            tar="$RUNNER_TEMP/${cluster}.tar.gz"
+            # Deterministic tarball: same render, same digest.
+            tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -C "out/${cluster}" -cf - flux argo | gzip -n > "$tar"
+            (cd "$RUNNER_TEMP" && oras push "${REGISTRY}/gitops/${cluster}:${SHA}" \
+              --artifact-type application/vnd.homelab-selfuryon.gitops.v1 \
+              --format json \
+              "${cluster}.tar.gz:application/vnd.oci.image.layer.v1.tar+gzip") > "$RUNNER_TEMP/push.json"
+            digest=$(jq -r .digest "$RUNNER_TEMP/push.json")
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            oras tag "${REGISTRY}/gitops/${cluster}@${digest}" main
+            cosign sign --yes "${REGISTRY}/gitops/${cluster}@${digest}"
+            echo "${cluster}: ${REGISTRY}/gitops/${cluster}@${digest}" >> "$GITHUB_STEP_SUMMARY"
+          done
+        env:
+          SHA: ${{ github.sha }}

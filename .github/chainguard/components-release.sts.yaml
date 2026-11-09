@@ -1,0 +1,15 @@
+# octo-sts trust policy `components-release`: the token platform-components' release workflow uses
+# to open the PR that updates clusters/<cluster>/releases.json. No auto-merge: platform approves.
+#
+# Only .github/workflows/release.yaml of platform-components, on a push to main. The job is defined in
+# that file (not a reusable workflow), so `job_workflow_ref` (the workflow that holds the job) and
+# `workflow_ref` (the top-level workflow) are both the file itself.
+issuer: https://token.actions.githubusercontent.com
+subject: repo:homelab-selfuryon@353728095/platform-components@1449727637:ref:refs/heads/main
+claim_pattern:
+  event_name: push
+  job_workflow_ref: homelab-selfuryon/platform-components/\.github/workflows/release\.yaml@refs/heads/main
+  workflow_ref: homelab-selfuryon/platform-components/\.github/workflows/release\.yaml@refs/heads/main
+permissions:
+  contents: write
+  pull_requests: write

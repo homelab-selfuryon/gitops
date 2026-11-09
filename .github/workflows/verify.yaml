@@ -1,0 +1,302 @@
+name: Verify
+
+# Checks of a pull request. This repository's own workflow: nothing in it is signed, so no reusable
+# workflow is needed.
+#
+#   1. who changed what: a PR from the release bot touches exactly its own files
+#      (scripts/gitops_checks.py of the BASE branch, so a PR cannot weaken the check)
+#   2. layout, `cue fmt --check`, `cue vet -c`, `cue cmd render`, kubeconform on the render
+#   3. a changed registration: deploy.cue's team is the repository's `owner-team` property and the
+#      repository has kind=app
+#   4. for every changed version file: the tag resolves to the digest, the signature, workflow
+#      identity and source repository (the registration's repo) check out
+#   5. Kyverno CLI over the referenced manifests with the policy set the cluster runs today
+#   6. object diff base -> head as a PR comment
+#
+# Tools: gitops' own devenv (cue, kubeconform, kyverno, python, yq), cosign and oras from pinned
+# setup actions. The base branch is evaluated with the head's devenv.
+#
+
+on:
+  pull_request:
+
+permissions: {}
+
+env:
+  DEVENV_VERSION: v2.4.0
+  REGISTRY: ghcr.io/homelab-selfuryon
+
+jobs:
+  verify:
+    name: gitops verify
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read # pull and verify artifacts
+      pull-requests: write # the diff comment, changed-files listing
+    concurrency:
+      group: gitops-verify-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: head
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: base
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: devenv # read-only: the public devenv cache, no auth token
+      - name: Install devenv
+        run: |
+          nix profile install --accept-flake-config --profile "$RUNNER_TEMP/devenv" "github:cachix/devenv/${DEVENV_VERSION}#devenv"
+          echo "$RUNNER_TEMP/devenv/bin" >> "$GITHUB_PATH"
+
+      # ~/.docker/config.json: read by buildx, oras and cue (platform-kit comes from GHCR).
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Changed files
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)' | sort -u > "$RUNNER_TEMP/files.txt"
+          cat "$RUNNER_TEMP/files.txt"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+
+      - name: Who changed what
+        run: |
+          set -euo pipefail
+          python3 -I base/scripts/gitops_checks.py release-pr \
+            --branch "$HEAD_REF" --author "$AUTHOR" - < "$RUNNER_TEMP/files.txt"
+          python3 -I base/scripts/gitops_checks.py layout --root head
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+
+      - name: CUE fmt, vet and render
+        working-directory: head
+        run: |
+          set -euo pipefail
+          devenv shell -- cue fmt --check ./...
+          devenv shell -- cue vet -c ./...
+          devenv shell -- cue cmd render
+
+      - name: kubeconform
+        working-directory: head
+        run: |
+          set -euo pipefail
+          find out -name '*.yaml' ! -name kustomization.yaml -print0 | xargs -0 --no-run-if-empty \
+            devenv shell -- kubeconform -strict -summary -ignore-missing-schemas \
+              -schema-location default \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+
+      # The registry of both sides as JSON (the base side only for the diff).
+      - name: Registry data
+        run: |
+          set -euo pipefail
+          devenv_head() { (cd head && devenv shell -- "$@"); }
+          devenv_head cue export -e apps --out json > "$RUNNER_TEMP/apps-head.json"
+          devenv_head bash -c 'cd ../base && cue export -e apps --out json' > "$RUNNER_TEMP/apps-base.json"
+
+      # A registration says which team owns which repository. The repository's `owner-team` custom
+      # property (set by platform-terraform) is the truth: a team cannot register another team's name.
+      - name: Registrations match the repository properties
+        run: |
+          set -euo pipefail
+          python3 -I base/scripts/gitops_checks.py registrations \
+            --root head --apps "$RUNNER_TEMP/apps-head.json" - < "$RUNNER_TEMP/files.txt" > "$RUNNER_TEMP/registrations.jsonl"
+          while read -r item; do
+            team=$(jq -r .team <<<"$item"); repo=$(jq -r .repo <<<"$item")
+            [[ "$team" =~ ^[a-z][a-z0-9-]{1,30}$ ]]
+            [[ "$repo" =~ ^homelab-selfuryon/[a-z][a-z0-9-]{1,40}$ ]]
+            # Readable with read access to the repository (public repositories: anyone).
+            props=$(gh api "repos/${repo}/properties/values")
+            owner=$(jq -r '.[] | select(.property_name == "owner-team") | .value' <<<"$props")
+            kind=$(jq -r '.[] | select(.property_name == "kind") | .value' <<<"$props")
+            [[ "$owner" == "$team" ]] || { echo "::error::${repo}: deploy.cue team is '${team}', the repository's owner-team is '${owner}'"; exit 1; }
+            [[ "$kind" == "app" ]] || { echo "::error::${repo}: kind is '${kind}', not app"; exit 1; }
+            echo "registration ${repo}: team ${team} matches owner-team, kind app"
+          done < "$RUNNER_TEMP/registrations.jsonl"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # Pulls a manifests artifact into <dir> as one file per object (<dir>/<name>/<prefix>/<namespace>/<kind>/<name>.yml).
+      - name: Verify the referenced artifacts
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/collect.sh" <<'COLLECT'
+          # collect <root> <apps.json> <outdir> <verify:0|1>
+          set -euo pipefail
+          root=$1; apps=$2; outdir=$3; verify=$4
+          python3 -I "$GITHUB_WORKSPACE/base/scripts/gitops_checks.py" artifacts \
+            --root "$root" --apps "$apps" - < "$RUNNER_TEMP/files.txt" |
+          while read -r item; do
+            artifact=$(jq -r .artifact <<<"$item"); tag=$(jq -r .tag <<<"$item")
+            digest=$(jq -r .digest <<<"$item"); workflow=$(jq -r .workflow <<<"$item")
+            repo=$(jq -r .repo <<<"$item")
+            [[ "$artifact" =~ ^ghcr\.io/homelab-selfuryon/[a-z0-9/-]+$ ]]
+            [[ "$tag" =~ ^[0-9A-Za-z._-]+$ ]]
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            [[ "$workflow" =~ ^(app-release|components-release)$ ]]
+            [[ "$repo" =~ ^homelab-selfuryon/[a-z0-9-]+$ ]]
+            if [[ "$verify" == 1 ]]; then
+              resolved=$(oras resolve "${artifact}:${tag}")
+              if [[ "$resolved" != "$digest" ]]; then
+                echo "::error::${artifact}:${tag} resolves to ${resolved}, the version file says ${digest}"
+                exit 1
+              fi
+              if [[ "$workflow" == app-release ]]; then
+                # Signed by the reusable workflow, from the release tag of the app repository (tag = version).
+                cosign verify \
+                  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+                  --certificate-identity-regexp "^https://github\.com/homelab-selfuryon/github-workflows/\.github/workflows/app-release\.yaml@.+\$" \
+                  --certificate-github-workflow-repository "$repo" \
+                  --certificate-github-workflow-ref "refs/tags/${tag}" \
+                  "${artifact}@${digest}" > /dev/null
+              else
+                # Signed by platform-components' own release job on main.
+                cosign verify \
+                  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+                  --certificate-identity "https://github.com/homelab-selfuryon/platform-components/.github/workflows/release.yaml@refs/heads/main" \
+                  --certificate-github-workflow-repository "$repo" \
+                  --certificate-github-workflow-ref refs/heads/main \
+                  "${artifact}@${digest}" > /dev/null
+              fi
+              echo "verified ${artifact}@${digest} (${tag}, ${workflow}, ${repo})"
+            fi
+            name=$(echo "${artifact#ghcr.io/homelab-selfuryon/}" | tr '/' '-')-$(jq -r .file <<<"$item" | tr '/.' '--')
+            dir="$outdir/$name"; raw=$(mktemp -d)
+            mkdir -p "$dir"
+            (cd "$raw" && oras pull "${artifact}@${digest}" > /dev/null && tar -xzf ./*.tar.gz)
+            # one file per object
+            while IFS= read -r -d '' f; do
+              prefix=$(basename "$(dirname "$f")" | tr -c 'A-Za-z0-9._-' _)
+              (cd "$dir" && PREFIX="$prefix" yq -P -s \
+                'strenv(PREFIX) + "/" + (.metadata.namespace // "_cluster") + "/" + (.kind | downcase) + "/" + .metadata.name' \
+                'select(.kind != null) | sort_keys(..)' "$f")
+            done < <(find "$raw" -name '*.yaml' ! -name kustomization.yaml -print0)
+          done
+          COLLECT
+          mkdir -p "$RUNNER_TEMP/diff/head" "$RUNNER_TEMP/diff/base"
+          bash "$RUNNER_TEMP/collect.sh" "$GITHUB_WORKSPACE/head" "$RUNNER_TEMP/apps-head.json" "$RUNNER_TEMP/diff/head/artifacts" 1
+          # The base side is only for the diff; its digests were verified when they were merged.
+          bash "$RUNNER_TEMP/collect.sh" "$GITHUB_WORKSPACE/base" "$RUNNER_TEMP/apps-base.json" "$RUNNER_TEMP/diff/base/artifacts" 0 || true
+
+      - name: Kyverno policies of the running policy set
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          status=0
+          for rel in base/clusters/*/releases.json; do
+            cluster=$(basename "$(dirname "$rel")")
+            digest=$(jq -r '.policy.digest // empty' "$rel")
+            if [[ -z "$digest" ]]; then
+              echo "::notice::${cluster}: no policy set released yet, Kyverno check skipped"
+              continue
+            fi
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            dir="$RUNNER_TEMP/policy-${cluster}"; mkdir -p "$dir"
+            (cd "$dir" && oras pull "${REGISTRY}/platform-components/${cluster}-policy@${digest}" > /dev/null && tar -xzf ./*.tar.gz)
+            mapfile -t policies < <(grep -rlE '^apiVersion: (policies\.)?kyverno\.io/' "$dir" || true)
+            if [[ ${#policies[@]} -eq 0 ]]; then
+              echo "::notice::${cluster}: the policy set holds no Kyverno policies"
+              continue
+            fi
+            mapfile -t resources < <(find "$RUNNER_TEMP/diff/head/artifacts" -type f -name '*.yml' 2>/dev/null)
+            if [[ ${#resources[@]} -eq 0 ]]; then
+              echo "::notice::no changed manifests to check"
+              continue
+            fi
+            args=(); for r in "${resources[@]}"; do args+=(--resource "$r"); done
+            # Policies that read the admission request can't be evaluated by the CLI and show up as
+            # errors; only failures fail the step (same rule as platform-components' kyverno-check.sh).
+            (cd head && devenv shell -- kyverno apply "${policies[@]}" "${args[@]}") | tee "$RUNNER_TEMP/kyverno.txt" || status=1
+            if grep -q ' failed:' "$RUNNER_TEMP/kyverno.txt"; then status=1; fi
+          done
+          exit "$status"
+
+      - name: Render both sides for the diff
+        run: |
+          set -euo pipefail
+          (cd head && devenv shell -- bash -c 'cd ../base && cue cmd render')
+          for side in base head; do
+            mkdir -p "$RUNNER_TEMP/diff/$side/render"
+            cp -r "$side/out/." "$RUNNER_TEMP/diff/$side/render/"
+          done
+
+      - name: Generate diff
+        id: diff
+        uses: int128/diff-action@274034d712aef611adcbd41e5a647f43e4edd5a5 # v2.41.0
+        with:
+          head: ${{ runner.temp }}/diff/head
+          base: ${{ runner.temp }}/diff/base
+
+      - uses: int128/comment-action@57130c0b08c149c4ba778ea2dbf5d9e2ac5d1917 # v1.79.0
+        if: steps.diff.outputs.comment-body != ''
+        with:
+          update-if-exists: replace
+          update-if-exists-key: gitops-verify
+          post: |
+            ## Object diff
+            ${{ steps.diff.outputs.comment-body }}
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: devenv # read-only: the public devenv cache, no auth token
+      - name: Install devenv
+        run: |
+          nix profile install --accept-flake-config --profile "$RUNNER_TEMP/devenv" "github:cachix/devenv/${DEVENV_VERSION}#devenv"
+          echo "$RUNNER_TEMP/devenv/bin" >> "$GITHUB_PATH"
+      # treefmt, cue vet, unit tests of the PR checks, render with sample digests, shellcheck
+      - name: devenv test
+        run: devenv test
+
+  lint:
+    name: Lint workflows
+    permissions:
+      contents: read
+    uses: homelab-selfuryon/github-workflows/.github/workflows/lint-workflows.yaml@v1.0.1
+
+  # The single required status check (branch ruleset).
+  final-check:
+    needs: [verify, tests, lint]
+    if: always()
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check results
+        run: |
+          for r in "verify=$VERIFY" "tests=$TESTS" "lint=$LINT"; do
+            [[ "${r#*=}" == success ]] || { echo "$r"; exit 1; }
+          done
+        env:
+          VERIFY: ${{ needs.verify.result }}
+          TESTS: ${{ needs.tests.result }}
+          LINT: ${{ needs.lint.result }}

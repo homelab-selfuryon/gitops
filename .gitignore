@@ -1,0 +1,18 @@
+# Nix
+.direnv/
+.devenv*
+devenv.local.nix
+devenv.local.yaml
+.pre-commit-config.yaml
+result
+result-*
+
+# `cue cmd render` output
+/out/
+
+# Python
+__pycache__/
+
+# Claude
+.claude/settings.local.json
+.claude/worktrees/

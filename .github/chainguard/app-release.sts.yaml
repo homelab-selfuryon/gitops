@@ -1,0 +1,17 @@
+# octo-sts trust policy `app-release`: the token an app's release workflow uses to open the
+# staging PR (apps/<team>/<app>/staging.json) and enable auto-merge.
+#
+# Only the app-release.yaml reusable workflow of github-workflows, running in the `staging`
+# GitHub Environment of a repository of this org, on a `v*` tag. The environment is part of `sub`.
+# `job_workflow_ref` is the called workflow (callers pin a tag or SHA, hence `.+`).
+# Patterns are anchored by octo-sts; no ^ or $.
+issuer: https://token.actions.githubusercontent.com
+subject_pattern: repo:homelab-selfuryon@353728095/[a-z][a-z0-9-]{1,40}@[0-9]+:environment:staging
+claim_pattern:
+  repository_owner: homelab-selfuryon
+  repo_property_kind: app
+  ref: refs/tags/v.+
+  job_workflow_ref: homelab-selfuryon/github-workflows/\.github/workflows/app-release\.yaml@.+
+permissions:
+  contents: write
+  pull_requests: write

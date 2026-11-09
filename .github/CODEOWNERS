@@ -1,0 +1,11 @@
+# The last matching pattern wins. Rules from meta/delivery.md "gitops layout".
+
+# Everything: platform (schema, render, scripts, workflows, registration, cluster releases).
+*                                  @homelab-selfuryon/platform
+
+# Staging version files have no owner: release PRs are auto-merged once the checks pass
+# (gitops-verify restricts what such a PR may touch).
+/apps/*/*/staging.json
+
+# Prod version files belong to the team that owns the app. Add a line per team.
+/apps/notes/*/prod.json            @homelab-selfuryon/notes
