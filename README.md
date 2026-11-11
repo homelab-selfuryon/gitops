@@ -33,7 +33,7 @@ clusters/<c>/releases.json       {"<set>": {"version": "<hash>", "digest": "sha2
 apps/<team>/<app>/app.cue    registration: team, repo, cluster, preview
 apps/<team>/<app>/staging.json   {"version": "v1.2.0", "digest": "sha256:..."}
 apps/<team>/<app>/prod.json      same shape
-devenv.nix, devenv.yaml, devenv.lock   cue v0.18.0-rc.3, kubeconform, kyverno, ...; treefmt + hooks
+devenv.nix, devenv.yaml, devenv.lock   cue v0.18.0-rc.4, kubeconform, kyverno, ...; treefmt + hooks
 scripts/                         gitops_checks.py (+ tests), test-render.sh, check-components-contract.sh
 .github/chainguard/              octo-sts trust policies
 .github/workflows/               verify (PR), publish (main), update (weekly devenv update)
