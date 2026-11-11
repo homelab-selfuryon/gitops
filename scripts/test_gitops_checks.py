@@ -118,6 +118,9 @@ class Artifacts(unittest.TestCase):
             ],
         )
         self.assertEqual(got[0]["repo"], "homelab-selfuryon/notes-api")
+        self.assertEqual(got[0]["env"], "staging")
+        self.assertEqual(got[0]["team"], "notes")
+        self.assertNotIn("env", got[1])
 
 
 
