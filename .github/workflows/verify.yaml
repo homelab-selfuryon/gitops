@@ -184,13 +184,25 @@ jobs:
             dir="$outdir/$name"; raw=$(mktemp -d)
             mkdir -p "$dir"
             (cd "$raw" && oras pull "${artifact}@${digest}" > /dev/null && tar -xzf ./*.tar.gz)
+            # An app artifact holds staging/ and prod/, objects without a namespace (Argo CD sets it to
+            # <team>-<env>). A version file moves one environment: only that one is diffed and checked,
+            # in the namespace Argo CD would give it (without it Kyverno sees two same-named objects in
+            # `default`).
+            env=$(jq -r '.env // empty' <<<"$item"); team=$(jq -r '.team // empty' <<<"$item")
+            src="$raw"
+            if [[ -n "$env" ]]; then
+              [[ "$env" =~ ^(staging|prod)$ && "$team" =~ ^[a-z][a-z0-9-]{1,30}$ ]]
+              src="$raw/$env"
+              find "$src" -name '*.yaml' -print0 |
+                NS="$team-$env" xargs -0 -r yq -i '(select(.kind != null and .metadata.namespace == null) | .metadata.namespace) = strenv(NS)'
+            fi
             # one file per object
             while IFS= read -r -d '' f; do
-              prefix=$(basename "$(dirname "$f")" | tr -c 'A-Za-z0-9._-' _)
+              prefix=$(basename "$(dirname "$f")"); prefix=${prefix//[^A-Za-z0-9._-]/_}
               (cd "$dir" && PREFIX="$prefix" yq -P -s \
                 'strenv(PREFIX) + "/" + (.metadata.namespace // "_cluster") + "/" + (.kind | downcase) + "/" + .metadata.name' \
                 'select(.kind != null) | sort_keys(..)' "$f")
-            done < <(find "$raw" -name '*.yaml' ! -name kustomization.yaml -print0)
+            done < <(find "$src" -name '*.yaml' ! -name kustomization.yaml -print0)
           done
           COLLECT
           mkdir -p "$RUNNER_TEMP/diff/head" "$RUNNER_TEMP/diff/base"

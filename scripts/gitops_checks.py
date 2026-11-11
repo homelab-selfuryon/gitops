@@ -145,6 +145,9 @@ def artifacts(root: pathlib.Path, files: list[str], apps: dict) -> list[dict]:
             out.append({
                 "file": path,
                 "artifact": f"{REGISTRY}/{m['app']}/manifests",
+                # The artifact holds every environment; this file moves only this one.
+                "env": m["env"],
+                "team": m["team"],
                 "tag": data["version"],
                 "digest": data["digest"],
                 "workflow": "app-release",
