@@ -1,7 +1,7 @@
 {
   "rbac": {
-    "digest": "sha256:f535026c47266deae27716ad2bc46efc3bdf6e092d218851a07a1f6a0a98694d",
-    "version": "1b5674eed45dcf55"
+    "digest": "sha256:0e6bc5c130e9fb44a909b68f97ae27e93a99fdaea813dc67f12971db14383c1c",
+    "version": "4a8c97d555c967e3"
   },
   "system": {
     "digest": "sha256:830f869fd1a17a481fb4bb0962fd36420f6eebdbc00c3d026592579a8bc0e474",
@@ -12,8 +12,8 @@
     "version": "b82672c108c2263d"
   },
   "policy": {
-    "digest": "sha256:108fd7f1054c4446978ac9ee682b5d619a73840b8518f7960766f3ec27c82fdd",
-    "version": "b9b87365ff4d960b"
+    "digest": "sha256:7839eee8a34235da72765432b15edda6097c224ac90e266416dc45e9f61a7413",
+    "version": "2eaf972b881c6c8b"
   },
   "tenants": {
     "digest": "sha256:c03666899d402b3f4bd324a72f2efffbd2b084edceb90a31209d8ad6f21e1296",
