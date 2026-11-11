@@ -188,9 +188,14 @@ package schema
 							syncPolicy: {
 								automated:   {prune: true, selfHeal: true}
 								syncOptions: ["CreateNamespace=true"]
+								// Pod Security `restricted` like the long-lived namespaces; the platform policy
+								// tenant-namespace-labels refuses a tenant namespace without it.
 								managedNamespaceMetadata: labels: {
-									"\(#Prefix)/team": s.team
-									"\(#Prefix)/env":  "preview"
+									"\(#Prefix)/team":                    s.team
+									"\(#Prefix)/env":                     "preview"
+									"pod-security.kubernetes.io/enforce": "restricted"
+									"pod-security.kubernetes.io/audit":   "restricted"
+									"pod-security.kubernetes.io/warn":    "restricted"
 								}
 							}
 						}
