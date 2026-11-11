@@ -10,7 +10,7 @@ Read `meta/delivery.md` ("gitops layout", "Flux object names") first; names ther
 schema/        types and #Render (data -> objects)     registry.cue   clusters and apps that exist
 ext_tool.cue   `cue cmd render` -> out/<c>/{flux,argo}  clusters/      cluster.cue + releases.json
 apps/<team>/<app>/  app.cue, staging.json, prod.json
-devenv.nix/.yaml/.lock  cue v0.18.0-rc.3 (upstream tarball), kubeconform, kyverno, ...
+devenv.nix/.yaml/.lock  cue v0.18.0-rc.4 (upstream tarball), kubeconform, kyverno, ...
 scripts/       gitops_checks.py (+ test_*.py), test-render.sh, check-components-contract.sh
 .github/       CODEOWNERS, chainguard/ (octo-sts policies), workflows/ (callers of github-workflows)
 ```
