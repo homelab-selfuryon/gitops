@@ -162,9 +162,12 @@ package schema
 					generators: [{
 						pullRequest: {
 							// No token: public repository, 60 requests per hour (see decisions.md, open).
+							// Only PRs labelled `preview` (the app's preview.yaml builds those only):
+							// removing the label removes the environment.
 							github: {
-								owner: "homelab-selfuryon"
-								repo:  s.name
+								owner:  "homelab-selfuryon"
+								repo:   s.name
+								labels: ["preview"]
 							}
 							requeueAfterSeconds: 300
 						}
