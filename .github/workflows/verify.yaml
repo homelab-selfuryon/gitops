@@ -169,6 +169,27 @@ jobs:
                   --certificate-github-workflow-repository "$repo" \
                   --certificate-github-workflow-ref "refs/tags/${tag}" \
                   "${artifact}@${digest}" > /dev/null
+                # Callers pin github-workflows by commit, and the identity accepts any ref. A commit of
+                # a fork is reachable by SHA through github-workflows too and then looks like ours in
+                # the certificate. So the commit the workflow ran from (Build Signer Digest, OID
+                # 1.3.6.1.4.1.57264.1.10) of every signature on the artifact must be on its main.
+                shas=$(oras discover --format json --artifact-type application/vnd.dev.sigstore.bundle.v0.3+json "${artifact}@${digest}" |
+                  jq -r '.referrers[]?.digest' |
+                  while read -r ref; do
+                    layer=$(oras manifest fetch "${artifact}@${ref}" | jq -r '.layers[0].digest')
+                    oras blob fetch --output - "${artifact}@${layer}" |
+                      jq -r '.verificationMaterial | (.certificate // .x509CertificateChain.certificates[0]).rawBytes' |
+                      base64 -d | openssl x509 -inform DER -noout -text |
+                      grep -A1 -F '1.3.6.1.4.1.57264.1.10:' | tail -n1 | grep -oE '[0-9a-f]{40}'
+                  done | sort -u)
+                [[ -n "$shas" ]] || { echo "::error::${artifact}@${digest}: no signature with a workflow commit"; exit 1; }
+                for sha in $shas; do
+                  status=$(gh api "repos/homelab-selfuryon/github-workflows/compare/${sha}...main" --jq .status)
+                  if [[ "$status" != ahead && "$status" != identical ]]; then
+                    echo "::error::${artifact}@${digest} was signed by github-workflows@${sha}, which is not on its main (${status})"
+                    exit 1
+                  fi
+                done
               else
                 # Signed by platform-components' own release job on main.
                 cosign verify \
@@ -209,6 +230,8 @@ jobs:
           bash "$RUNNER_TEMP/collect.sh" "$GITHUB_WORKSPACE/head" "$RUNNER_TEMP/apps-head.json" "$RUNNER_TEMP/diff/head/artifacts" 1
           # The base side is only for the diff; its digests were verified when they were merged.
           bash "$RUNNER_TEMP/collect.sh" "$GITHUB_WORKSPACE/base" "$RUNNER_TEMP/apps-base.json" "$RUNNER_TEMP/diff/base/artifacts" 0 || true
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Kyverno policies of the running policy set
         # App manifests only: platform-components' sets were checked at their source with every
