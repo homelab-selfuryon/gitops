@@ -127,8 +127,11 @@ package schema
 				apiVersion: "argoproj.io/v1alpha1"
 				kind:       "Application"
 				metadata: {
-					name:      "\(s.name)-\(e)"
-					namespace: "argocd-system"
+					name: "\(s.name)-\(e)"
+					// The team's own namespace (apps in any namespace; its AppProject lists it in
+					// sourceNamespaces): the team reads its Applications there and nothing else. The
+					// preview ApplicationSet stays in argocd-system (its Applications go where it is).
+					namespace: "argocd-\(s.team)"
 					labels:    _labels & {"\(#Prefix)/env": e}
 				}
 				spec: {
