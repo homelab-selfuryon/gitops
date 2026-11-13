@@ -13,10 +13,23 @@ On merge to `main` the render is pushed per cluster as a signed OCI artifact (`.
 (`ghcr.io/homelab-selfuryon/gitops/<cluster>:main`); Flux pulls it with cosign verification. Argo CD
 has no git access at all.
 
-```
-platform-components ──release──► PR: clusters/<c>/releases.json ┐
-app repositories ─release──► PR: apps/<team>/<app>/staging.json (auto-merge)  ├─► merge ─► publish ─► Flux ─► Argo CD
-app repositories ─promote──► PR: apps/<team>/<app>/prod.json (team approves)  ┘
+```mermaid
+---
+config:
+  flowchart:
+    wrappingWidth: 260
+---
+flowchart TB
+    pc["<b>platform-components</b>"] -->|release| sets["PR: clusters/&lt;c&gt;/<br/>releases.json<br/>platform approves"]
+    apps["<b>app repositories</b>"] -->|release| stg["PR: apps/&lt;team&gt;/&lt;app&gt;/<br/>staging.json<br/>auto-merge"]
+    apps -->|promote| prod["PR: apps/&lt;team&gt;/&lt;app&gt;/<br/>prod.json<br/>team approves"]
+
+    subgraph after["after merge"]
+        direction LR
+        publish["publish<br/>signed OCI per cluster"] --> flux["Flux"] --> argo["Argo CD"]
+    end
+
+    sets & stg & prod --> after
 ```
 
 Rollback is a revert of the PR. The design is in `meta/delivery.md` (gitops layout, Flux object names).
