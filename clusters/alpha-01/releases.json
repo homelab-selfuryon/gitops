@@ -1,7 +1,7 @@
 {
   "rbac": {
-    "digest": "sha256:4b53da0e553f1730f593d48fb26fcb68de4b37516c192c23294c73a240dbea60",
-    "version": "abf33f2ef9018398"
+    "digest": "sha256:622963c0f1834be75732f3bf2a74dae47fdaed091d8169b180ae98d349e13a34",
+    "version": "08ec723b02a8fb4b"
   },
   "system": {
     "digest": "sha256:373c7653fc14be3a1e28793c0b1af52e0730c581a644032a74d82245a3880722",
