@@ -27,7 +27,7 @@ devenv test                          # treefmt, vet, unit tests, sample render, 
 
 ## Conventions
 
-- Version files are data: `{}` (unreleased) or `{"version", "digest"}`; never hand-edit them except
+- Version files (`releases.json` too: one platform artifact per cluster) are data: `{}` (unreleased) or `{"version", "digest"}`; never hand-edit them except
   to roll back. A release PR may change one file only; `scripts/gitops_checks.py` enforces it.
 - CUE language v0.18: no `K=string` aliases (use `~`); the key check in registry.cue is a comprehension.
 - Registrations normally arrive as `register/<app>` PRs from app-register; version files and

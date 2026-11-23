@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Checks a local render of platform-components against what the gitops render assumes about a set
-# artifact: the set names of the cluster, `flux/kustomization.yaml` + `flux/kustomizations.yaml` at the
-# artifact root, and Kustomizations in flux-system whose sourceRef is the OCIRepository `set-<set>`.
+# Checks a local render of platform-components against what the gitops render assumes about the
+# cluster artifact: a directory per set of the cluster, `<set>/flux/kustomization.yaml` + `kustomizations.yaml`,
+# and Kustomizations in flux-system on the OCIRepository `platform-components`, path `./<set>/components/<name>`.
 #
 #   scripts/check-components-contract.sh <platform-components>/out/<cluster> <cluster>
 #
@@ -21,8 +21,8 @@ for set_name in $sets; do
     [[ -f "$dir/$f" ]] || { echo "set ${set_name}: $f missing" >&2; status=1; }
   done
   [[ -f "$dir/flux/kustomizations.yaml" ]] || continue
-  bad=$(yq -r 'select(.kind == "Kustomization") | select(.metadata.namespace != "flux-system" or .spec.sourceRef.kind != "OCIRepository" or .spec.sourceRef.name != "set-'"$set_name"'") | .metadata.name' "$dir/flux/kustomizations.yaml")
-  if [[ -n "$bad" ]]; then echo "set ${set_name}: Kustomizations with a wrong namespace or sourceRef: $bad" >&2; status=1; fi
+  bad=$(yq -r 'select(.kind == "Kustomization") | select(.metadata.namespace != "flux-system" or .spec.sourceRef.kind != "OCIRepository" or .spec.sourceRef.name != "platform-components" or (.spec.path | test("^\\./'"$set_name"'/components/[a-z0-9-]+$") | not)) | .metadata.name' "$dir/flux/kustomizations.yaml")
+  if [[ -n "$bad" ]]; then echo "set ${set_name}: Kustomizations with a wrong namespace, sourceRef or path: $bad" >&2; status=1; fi
   echo "set ${set_name}: $(yq -r 'select(.kind == "Kustomization") | .metadata.name' "$dir/flux/kustomizations.yaml" | wc -l) component Kustomizations"
 done
 # Rendered sets the cluster definition does not know would be silently ignored.
