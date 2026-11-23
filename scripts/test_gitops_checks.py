@@ -122,6 +122,19 @@ class Artifacts(unittest.TestCase):
         self.assertEqual(got[0]["team"], "notes")
         self.assertNotIn("env", got[1])
 
+    def test_one_artifact_per_cluster(self):
+        for content, want in [
+            ({"version": "0123456789abcdef", "digest": D}, ["ghcr.io/homelab-selfuryon/platform-components/alpha-01"]),
+            ({}, []),
+        ]:
+            files = dict(GOOD)
+            files["clusters/alpha-01/releases.json"] = json.dumps(content)
+            with tempfile.TemporaryDirectory() as d:
+                root = pathlib.Path(d)
+                tree(root, files)
+                got = g.artifacts(root, ["clusters/alpha-01/releases.json"], {})
+            self.assertEqual([a["artifact"] for a in got], want)
+
 
 
 

@@ -154,12 +154,23 @@ def artifacts(root: pathlib.Path, files: list[str], apps: dict) -> list[dict]:
                 "repo": apps[key]["repo"],
             })
         elif m := CLUSTER_FILE.match(path):
-            for set_name, rel in sorted(read_json(root / path).items()):
-                if not rel.get("digest"):
+            data = read_json(root / path)
+            # One artifact per cluster ({version, digest}, or {} before the first release), or the
+            # earlier format, one artifact per set ({<set>: {version, digest}}). Both are read while
+            # the change between them is under review: these checks run from the base branch.
+            if not data or "digest" in data:
+                releases = [(f"{REGISTRY}/platform-components/{m['cluster']}", data)]
+            else:
+                releases = [
+                    (f"{REGISTRY}/platform-components/{m['cluster']}-{set_name}", rel)
+                    for set_name, rel in sorted(data.items())
+                ]
+            for artifact, rel in releases:
+                if not isinstance(rel, dict) or not rel.get("digest"):
                     continue
                 out.append({
                     "file": path,
-                    "artifact": f"{REGISTRY}/platform-components/{m['cluster']}-{set_name}",
+                    "artifact": artifact,
                     "tag": rel["version"],
                     "digest": rel["digest"],
                     "workflow": "components-release",
