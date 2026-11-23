@@ -3,7 +3,7 @@
 What runs where, for [`homelab-selfuryon`](https://github.com/homelab-selfuryon). The repository
 holds only data and a small CUE render:
 
-- digests of the platform sets per cluster (`clusters/<cluster>/releases.json`),
+- the digest of the platform release per cluster (`clusters/<cluster>/releases.json`: one artifact, a directory per set),
 - digests of app manifests per environment (`apps/<team>/<app>/{staging,prod}.json`),
 - the registration of each app (`apps/<team>/<app>/app.cue`, platform-owned),
 - the render from that data to Flux `OCIRepository`/`Kustomization` and Argo CD
@@ -42,7 +42,7 @@ schema/                          #Cluster, #App, #Version, #Render (data -> obje
 registry.cue                     the clusters and apps that exist (one import each)
 ext_tool.cue                     `cue cmd render`
 clusters/<c>/cluster.cue         name, set order
-clusters/<c>/releases.json       {"<set>": {"version": "<hash>", "digest": "sha256:..."}}
+clusters/<c>/releases.json       {"version": "<hash>", "digest": "sha256:..."}  (the platform artifact)
 apps/<team>/<app>/app.cue    registration: team, repo, cluster, preview
 apps/<team>/<app>/staging.json   {"version": "v1.2.0", "digest": "sha256:..."}
 apps/<team>/<app>/prod.json      same shape
@@ -52,15 +52,15 @@ scripts/                         gitops_checks.py (+ tests), test-render.sh, che
 .github/workflows/               verify (PR), publish (main), update (weekly devenv update)
 ```
 
-`{}` means "not released yet": a set without a digest gets no Flux objects, an app
+`{}` means "not released yet": a cluster without a platform release gets no set objects, an app
 environment without a digest gets no Application. The repository starts out like that.
 
 ## What `cue cmd render` produces
 
-`out/<cluster>/flux/`: per released set an `OCIRepository` `set-<set>` (by digest, cosign
+`out/<cluster>/flux/`: one `OCIRepository` `platform-components` (`<cluster>` artifact by digest, cosign
 verification: subject `platform-components/.github/workflows/release.yaml@refs/heads/main`, `layerSelector` on the tar+gzip layer) and
-a `Kustomization` `set-<set>` (path `./flux`, `wait: true`, ServiceAccount `gitops-root`, `dependsOn`
-the previous released set); the `argo-apps` Kustomization (path `./argo` of the `gitops` artifact,
+a `Kustomization` `set-<set>` per set (path `./<set>/flux`, `wait: true`, ServiceAccount `gitops-root`, `dependsOn`
+the previous set); the `argo-apps` Kustomization (path `./argo` of the `gitops` artifact,
 ServiceAccount `argo-apps`, `dependsOn: set-tenants`).
 `out/<cluster>/argo/`: an `Application` per app and released environment (project `<team>`, source
 `oci://ghcr.io/homelab-selfuryon/<app>/manifests` at the digest, path `<env>`, destination namespace
@@ -82,7 +82,7 @@ GHCR packages need no repository registration; private ones need a repository of
 ## Checks
 
 `.github/workflows/verify.yaml` (this repository's own workflow, job `gitops verify`) runs on every PR: who changed what, layout,
-`cue fmt`/`vet`/`render`, kubeconform, signature and identity of every referenced artifact (sets: platform-components release.yaml on main; app releases: github-workflows + the `refs/tags/<version>` ref), Kyverno,
+`cue fmt`/`vet`/`render`, kubeconform, signature and identity of every referenced artifact (platform: platform-components release.yaml on main; app releases: github-workflows + the `refs/tags/<version>` ref), Kyverno,
 object diff as a comment. A release PR from the bot may touch exactly one version file
 (`scripts/gitops_checks.py`, taken from the base branch). Locally:
 

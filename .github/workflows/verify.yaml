@@ -264,16 +264,17 @@ jobs:
           fi
           for rel in base/clusters/*/releases.json; do
             cluster=$(basename "$(dirname "$rel")")
-            digest=$(jq -r '.policy.digest // empty' "$rel")
+            digest=$(jq -r '.digest // empty' "$rel")
             if [[ -z "$digest" ]]; then
-              echo "::notice::${cluster}: no policy set released yet, Kyverno check skipped"
+              echo "::notice::${cluster}: no platform release yet, Kyverno check skipped"
               continue
             fi
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
             dir="$RUNNER_TEMP/policy-${cluster}"; mkdir -p "$dir"
-            (cd "$dir" && oras pull "${REGISTRY}/platform-components/${cluster}-policy@${digest}" > /dev/null && tar -xzf ./*.tar.gz)
+            (cd "$dir" && oras pull "${REGISTRY}/platform-components/${cluster}@${digest}" > /dev/null && tar -xzf ./*.tar.gz)
             policies="$RUNNER_TEMP/policies-${cluster}.yaml"
-            find "$dir" -name '*.yaml' -print0 | xargs -0 yq 'select(.apiVersion == "policies.kyverno.io/*") | select(to_json | test("request\\.userInfo") | not)' > "$policies"
+            [[ -d "$dir/policy" ]] || { echo "::error::${cluster}: the platform artifact has no policy/ directory"; status=1; continue; }
+            find "$dir/policy" -name '*.yaml' -print0 | xargs -0 yq 'select(.apiVersion == "policies.kyverno.io/*") | select(to_json | test("request\\.userInfo") | not)' > "$policies"
             if [[ ! -s $policies ]]; then
               echo "::notice::${cluster}: the policy set holds no applicable Kyverno policies"
               continue

@@ -23,9 +23,10 @@ package schema
 	if digest != _|_ {version: string}
 }
 
-// One platform set of a cluster (an entry of releases.json). The version is the content hash that
-// platform-components tags the artifact with. `{}` means "not released yet".
-#SetRelease: {
+// The platform release of a cluster (releases.json): one artifact, a directory per set. The version
+// is the content hash that platform-components tags the artifact with. `{}` means "not released
+// yet".
+#Release: {
 	version?: =~"^[0-9a-f]{16}$"
 	digest?:  #Digest
 	// Both or neither.
@@ -48,9 +49,10 @@ package schema
 
 #Cluster: {
 	name: #Name
-	// Platform sets in apply order: every set waits for the previous released one.
-	sets:     [#Name, ...#Name]
-	releases: {for s in sets {(s): #SetRelease}}
-	// Where platform-components publishes the set artifacts: <repo>/<cluster>-<set>.
+	// Platform sets in apply order: every set waits for the previous one. Each is a directory
+	// (<set>/flux, <set>/components) of the cluster's artifact.
+	sets:    [#Name, ...#Name]
+	release: #Release
+	// Where platform-components publishes the cluster artifact: <repo>/<cluster>.
 	componentsRepo: "\(#Registry)/platform-components"
 }

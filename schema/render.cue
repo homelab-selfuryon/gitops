@@ -20,7 +20,7 @@ package schema
 
 // Subject (SAN) of the keyless certificate of the platform-components release workflow. That job is
 // defined in platform-components itself (not a reusable workflow), so the SAN names the repository and
-// the ref: only reviewed main can publish a set Flux accepts. Flux matches issuer and subject only.
+// the ref: only reviewed main can publish a platform release Flux accepts. Flux matches issuer and subject only.
 #setSubject: "^https://github\\.com/homelab-selfuryon/platform-components/\\.github/workflows/release\\.yaml@refs/heads/main$"
 
 #labels: {
@@ -28,29 +28,28 @@ package schema
 	...
 }
 
-// Flux objects: a source and a Kustomization per released set, and the Kustomization that applies
-// the Argo CD objects once the tenants set is ready.
+// Flux objects: the source of the platform release, a Kustomization per set (a directory of that
+// artifact), and the Kustomization that applies the Argo CD objects once the tenants set is ready.
+// One artifact means every set comes from the same render: no set runs ahead of another.
 #Flux: {
 	#cluster: #Cluster
 
 	// Whether there are Argo CD objects to apply.
 	#apps: bool
 
-	let _released = [for s in #cluster.sets if #cluster.releases[s].digest != _|_ {s}]
-
-	for i, s in _released {
-		"ocirepository-set-\(s)": {
+	if #cluster.release.digest != _|_ {
+		"ocirepository-platform-components": {
 			apiVersion: "source.toolkit.fluxcd.io/v1"
 			kind:       "OCIRepository"
 			metadata: {
-				name:      "set-\(s)"
+				name:      "platform-components"
 				namespace: "flux-system"
-				labels:    #labels & {"\(#Prefix)/component": "set-\(s)"}
+				labels:    #labels & {"\(#Prefix)/component": "platform-components"}
 			}
 			spec: {
 				interval: "30m"
-				url:      "oci://\(#cluster.componentsRepo)/\(#cluster.name)-\(s)"
-				ref: digest: #cluster.releases[s].digest
+				url:      "oci://\(#cluster.componentsRepo)/\(#cluster.name)"
+				ref: digest: #cluster.release.digest
 				layerSelector: {
 					mediaType: "application/vnd.oci.image.layer.v1.tar+gzip"
 					operation: "extract"
@@ -64,6 +63,9 @@ package schema
 				}
 			}
 		}
+	}
+
+	for i, s in #cluster.sets if #cluster.release.digest != _|_ {
 		"kustomization-set-\(s)": {
 			apiVersion: "kustomize.toolkit.fluxcd.io/v1"
 			kind:       "Kustomization"
@@ -75,13 +77,13 @@ package schema
 			spec: {
 				interval:           "30m"
 				timeout:            "15m"
-				path:               "./flux"
+				path:               "./\(s)/flux"
 				prune:              true
 				wait:               true
 				serviceAccountName: "gitops-root"
-				sourceRef:          {kind: "OCIRepository", name: "set-\(s)"}
+				sourceRef:          {kind: "OCIRepository", name: "platform-components"}
 				if i > 0 {
-					dependsOn: [{name: "set-\(_released[i-1])"}]
+					dependsOn: [{name: "set-\(#cluster.sets[i-1])"}]
 				}
 			}
 		}

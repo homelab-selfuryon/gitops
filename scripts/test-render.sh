@@ -17,26 +17,18 @@ count() { find "$1" -maxdepth 1 -type f -name "$2" | wc -l; }
 d1="sha256:$(printf '1%.0s' {1..64})"
 d2="sha256:$(printf '2%.0s' {1..64})"
 
-# --- 1. nothing released: no Applications, no set objects. The copy starts from the repository's
+# --- 1. nothing released: no Applications, no platform objects. The copy starts from the repository's
 # real versions, so every version file is reset first.
 for f in apps/*/*/staging.json apps/*/*/prod.json; do echo '{}' >"$f"; done
-for f in clusters/*/releases.json; do jq 'map_values({})' "$f" >"$f.tmp" && mv "$f.tmp" "$f"; done
+for f in clusters/*/releases.json; do echo '{}' >"$f"; done
 cue vet -c ./...
 cue cmd render >/dev/null
 test "$(count out/alpha-01/flux "*")" -eq 2   # argo-apps + kustomization.yaml
 test "$(count out/alpha-01/argo "application-*")" -eq 0
 test "$(count out/alpha-01/argo "applicationset-*")" -eq 2
 
-# --- 2. samples everywhere, except system (unreleased) and notes-stats (unreleased)
-cat > clusters/alpha-01/releases.json <<JSON
-{
-  "rbac": {"version": "0123456789abcdef", "digest": "$d1"},
-  "system": {},
-  "platform": {"version": "fedcba9876543210", "digest": "$d2"},
-  "policy": {"version": "0123456789abcdef", "digest": "$d1"},
-  "tenants": {"version": "fedcba9876543210", "digest": "$d2"}
-}
-JSON
+# --- 2. samples everywhere, except notes-stats (unreleased)
+echo "{\"version\": \"0123456789abcdef\", \"digest\": \"$d2\"}" > clusters/alpha-01/releases.json
 echo "{\"version\": \"v1.2.0\", \"digest\": \"$d1\"}" > apps/notes/notes-api/staging.json
 echo "{\"version\": \"v1.1.0\", \"digest\": \"$d2\"}" > apps/notes/notes-api/prod.json
 
@@ -45,21 +37,25 @@ cue cmd render >/dev/null
 
 flux=out/alpha-01/flux
 argo=out/alpha-01/argo
-# 4 released sets x (OCIRepository + Kustomization) + argo-apps + kustomization.yaml
-test "$(count $flux "*")" -eq 10
-test ! -e $flux/ocirepository-set-system.yaml
-# dependsOn skips the unreleased set
-test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-set-policy.yaml)" = "set-rbac"
+# OCIRepository + 5 set Kustomizations + argo-apps + kustomization.yaml
+test "$(count $flux "*")" -eq 8
+test "$(count $flux "ocirepository-*")" -eq 1
+# sets in order, each on its directory of the one artifact
+test "$(yq '.spec.dependsOn' $flux/kustomization-set-rbac.yaml)" = "null"
+test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-set-system.yaml)" = "set-rbac"
+test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-set-policy.yaml)" = "set-system"
 test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-set-platform.yaml)" = "set-policy"
 test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-set-tenants.yaml)" = "set-platform"
-test "$(yq '.spec.dependsOn' $flux/kustomization-set-rbac.yaml)" = "null"
 test "$(yq '.spec.dependsOn[0].name' $flux/kustomization-argo-apps.yaml)" = "set-tenants"
-test "$(yq '.spec.ref.digest' $flux/ocirepository-set-platform.yaml)" = "$d2"
-test "$(yq '.spec.url' $flux/ocirepository-set-rbac.yaml)" = "oci://ghcr.io/homelab-selfuryon/platform-components/alpha-01-rbac"
+test "$(yq '.spec.path' $flux/kustomization-set-policy.yaml)" = "./policy/flux"
+test "$(yq '.spec.sourceRef.name' $flux/kustomization-set-policy.yaml)" = "platform-components"
 test "$(yq '.spec.wait' $flux/kustomization-set-rbac.yaml)" = "true"
 test "$(yq '.spec.serviceAccountName' $flux/kustomization-set-rbac.yaml)" = "gitops-root"
-test "$(yq '.spec.verify.provider' $flux/ocirepository-set-rbac.yaml)" = "cosign"
-test "$(yq ".spec.verify.matchOIDCIdentity[0].subject" $flux/ocirepository-set-rbac.yaml)" = "^https://github\\.com/homelab-selfuryon/platform-components/\\.github/workflows/release\\.yaml@refs/heads/main$"
+oci=$flux/ocirepository-platform-components.yaml
+test "$(yq '.spec.ref.digest' $oci)" = "$d2"
+test "$(yq '.spec.url' $oci)" = "oci://ghcr.io/homelab-selfuryon/platform-components/alpha-01"
+test "$(yq '.spec.verify.provider' $oci)" = "cosign"
+test "$(yq ".spec.verify.matchOIDCIdentity[0].subject" $oci)" = "^https://github\\.com/homelab-selfuryon/platform-components/\\.github/workflows/release\\.yaml@refs/heads/main$"
 
 # notes-api: staging and prod, notes-stats: none
 test "$(count $argo "application-*")" -eq 2

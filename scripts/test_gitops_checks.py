@@ -102,9 +102,7 @@ class Artifacts(unittest.TestCase):
     def test_collects_released_only(self):
         files = dict(GOOD)
         files[ST] = json.dumps({"version": "v1.2.0", "digest": D})
-        files["clusters/alpha-01/releases.json"] = json.dumps(
-            {"rbac": {"version": "0123456789abcdef", "digest": D}, "system": {}}
-        )
+        files["clusters/alpha-01/releases.json"] = json.dumps({"version": "0123456789abcdef", "digest": D})
         apps = {"notes/notes-api": {"repo": "homelab-selfuryon/notes-api"}}
         with tempfile.TemporaryDirectory() as d:
             root = pathlib.Path(d)
@@ -114,7 +112,7 @@ class Artifacts(unittest.TestCase):
             [(a["artifact"], a["tag"], a["workflow"]) for a in got],
             [
                 ("ghcr.io/homelab-selfuryon/notes-api/manifests", "v1.2.0", "app-release"),
-                ("ghcr.io/homelab-selfuryon/platform-components/alpha-01-rbac", "0123456789abcdef", "components-release"),
+                ("ghcr.io/homelab-selfuryon/platform-components/alpha-01", "0123456789abcdef", "components-release"),
             ],
         )
         self.assertEqual(got[0]["repo"], "homelab-selfuryon/notes-api")
