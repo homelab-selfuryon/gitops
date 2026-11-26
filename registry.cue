@@ -25,11 +25,11 @@ _versions: _ @embed(glob="apps/*/*/*.json")
 apps: {
 	for name, a in _catalog.apps {
 		"\(a.team)/\(name)": schema.#App & {
-			"name":  name
-			team:    a.team
-			repo:    a.repo
-			cluster: a.cluster
-			preview: a.preview
+			"name": name
+			team:   a.team
+			envs:   a.envs
+			// A cluster registered here: an app on an unknown cluster would render nothing.
+			cluster: a.cluster & or([for c, _ in clusters {c}])
 			staging: _versions["apps/\(a.team)/\(name)/staging.json"]
 			prod:    _versions["apps/\(a.team)/\(name)/prod.json"]
 		}
