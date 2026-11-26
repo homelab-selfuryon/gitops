@@ -1,0 +1,15 @@
+# octo-sts trust policy `catalog-sync`: the token the `catalog` repository's CI uses to open the
+# `catalog/sync` PR that brings a new catalog.json here (meta delivery.md, "Catalog"). No auto-merge.
+#
+# Only the `sync` job of catalog's own ci.yaml, on main of that repository (pinned by its id, so a
+# repository recreated under the same name does not match), on a push or a manual run.
+# Patterns are anchored by octo-sts; no ^ or $.
+issuer: https://token.actions.githubusercontent.com
+subject: repo:homelab-selfuryon@353728095/catalog@1472460878:ref:refs/heads/main
+claim_pattern:
+  repository_owner: homelab-selfuryon
+  event_name: push|workflow_dispatch
+  job_workflow_ref: homelab-selfuryon/catalog/\.github/workflows/ci\.yaml@refs/heads/main
+permissions:
+  contents: write
+  pull_requests: write
