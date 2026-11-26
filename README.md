@@ -62,10 +62,10 @@ verification: subject `platform-components/.github/workflows/release.yaml@refs/h
 a `Kustomization` `set-<set>` per set (path `./<set>/flux`, `wait: true`, ServiceAccount `gitops-root`, `dependsOn`
 the previous set); the `argo-apps` Kustomization (path `./argo` of the `gitops` artifact,
 ServiceAccount `argo-apps`, `dependsOn: set-tenants`).
-`out/<cluster>/argo/`: an `Application` per app and released environment (project `<team>`, source
+`out/<cluster>/argo/`: an `Application` per app and environment it has in `envs` (catalog) and that is released (project `<team>`, source
 `oci://ghcr.io/homelab-selfuryon/<app>/manifests` at the digest, path `<env>`, destination namespace
 `<team>-<env>`, automated sync with prune and self-heal) and an `ApplicationSet` per app with
-preview (pull request generator, project `<team>-preview`, revision `pr-<n>`, namespace
+`preview` in `envs` (pull request generator, project `<team>-preview`, revision `pr-<n>`, namespace
 `<team>-pr-<n>` created with labels `team` and `env`). Each directory has a `kustomization.yaml`.
 
 Argo CD OCI sources (checked against the Argo CD docs): `repoURL` takes the `oci://` scheme,

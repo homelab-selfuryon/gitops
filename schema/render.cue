@@ -1,5 +1,7 @@
 package schema
 
+import "list"
+
 // Flux and Argo CD objects of every cluster, as data: out.<cluster>.{flux,argo}.<file> = object.
 // ext_tool.cue writes them to out/<cluster>/{flux,argo}/<file>.yaml.
 #Render: {
@@ -124,7 +126,8 @@ package schema
 			"\(#Prefix)/team": s.team
 		}
 
-		for e in [for env in ["staging", "prod"] if s[env].digest != _|_ {env}] {
+		// Environments the app has and that are released (a version file with a digest).
+		for e in [for env in ["staging", "prod"] if list.Contains(s.envs, env) && s[env].digest != _|_ {env}] {
 			"application-\(s.name)-\(e)": {
 				apiVersion: "argoproj.io/v1alpha1"
 				kind:       "Application"
