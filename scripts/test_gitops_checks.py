@@ -168,6 +168,130 @@ class Register(unittest.TestCase):
             got = g.registrations(root, ["apps/notes/notes-api/app.cue", ST, "registry.cue"], apps)
         self.assertEqual(got, [{"file": "apps/notes/notes-api/app.cue", "team": "notes", "repo": "homelab-selfuryon/notes-api"}])
 
+    def test_registrations_catalog_lists_every_app(self):
+        apps = {
+            "notes/notes-api": {"team": "notes", "repo": "homelab-selfuryon/notes-api"},
+            "notes/notes-stats": {"team": "notes", "repo": "homelab-selfuryon/notes-stats"},
+        }
+        got = g.registrations(pathlib.Path("."), ["catalog.json", ST], apps)
+        self.assertEqual([r["repo"] for r in got], ["homelab-selfuryon/notes-api", "homelab-selfuryon/notes-stats"])
+
+
+def catalog(*apps):
+    return json.dumps({"teams": {}, "apps": {name: {"name": name, "team": team} for team, name in apps}})
+
+
+OWNERS_HEAD = "*                                  @homelab-selfuryon/platform\n"
+NOTES_OWNERS = OWNERS_HEAD + g.owners_block(["notes"])
+
+CAT = {
+    "catalog.json": catalog(("notes", "notes-api")),
+    "registry.cue": 'import a "x/clusters/alpha-01:alpha01"\n',
+    ".github/CODEOWNERS": NOTES_OWNERS,
+    "apps/notes/notes-api/staging.json": "{}",
+    "apps/notes/notes-api/prod.json": "{}",
+    "clusters/alpha-01/cluster.cue": "",
+    "clusters/alpha-01/releases.json": "{}",
+}
+
+
+class CatalogLayout(unittest.TestCase):
+    def run_layout(self, files):
+        with tempfile.TemporaryDirectory() as d:
+            tree(pathlib.Path(d), files)
+            return g.check_layout(pathlib.Path(d))
+
+    def test_good(self):
+        self.assertEqual(self.run_layout(CAT), [])
+
+    def test_owners_line(self):
+        self.assertIn("/apps/notes/*/prod.json            @homelab-selfuryon/notes\n", NOTES_OWNERS)
+
+    def test_app_without_directory(self):
+        f = dict(CAT, **{"catalog.json": catalog(("notes", "notes-api"), ("notes", "new-app"))})
+        self.assertTrue(self.run_layout(f))
+
+    def test_directory_without_app(self):
+        f = dict(CAT, **{"apps/notes/old-app/staging.json": "{}", "apps/notes/old-app/prod.json": "{}"})
+        self.assertTrue(self.run_layout(f))
+
+    def test_wrong_team(self):
+        f = dict(CAT, **{"catalog.json": catalog(("other", "notes-api"))})
+        self.assertTrue(self.run_layout(f))
+
+    def test_stray_file(self):
+        f = dict(CAT, **{"apps/notes/notes-api/app.cue": ""})
+        self.assertTrue(self.run_layout(f))
+
+    def test_missing_version_file(self):
+        f = dict(CAT)
+        del f["apps/notes/notes-api/prod.json"]
+        self.assertTrue(self.run_layout(f))
+
+    def test_owners_out_of_date(self):
+        f = dict(CAT, **{".github/CODEOWNERS": OWNERS_HEAD + g.owners_block(["notes", "other"])})
+        self.assertTrue(self.run_layout(f))
+
+    def test_owners_without_block(self):
+        f = dict(CAT, **{".github/CODEOWNERS": OWNERS_HEAD})
+        self.assertTrue(self.run_layout(f))
+
+    def test_cluster_not_imported(self):
+        f = dict(CAT, **{"registry.cue": ""})
+        self.assertTrue(self.run_layout(f))
+
+
+class Sync(unittest.TestCase):
+    def test_sync_then_layout_passes(self):
+        files = dict(CAT, **{
+            "catalog.json": catalog(("notes", "notes-api"), ("search", "search-api")),
+            "apps/old/old-app/staging.json": "{}",
+            "apps/old/old-app/prod.json": "{}",
+        })
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            tree(root, files)
+            self.assertTrue(g.check_layout(root))
+            changed = g.sync(root)
+            self.assertEqual(g.check_layout(root), [])
+            self.assertEqual(g.sync(root), [])
+            self.assertFalse((root / "apps/old").exists())
+            self.assertEqual((root / "apps/search/search-api/staging.json").read_text(), "{}\n")
+            self.assertIn("@homelab-selfuryon/search", (root / ".github/CODEOWNERS").read_text())
+        self.assertEqual(
+            changed,
+            [
+                "apps/search/search-api/staging.json",
+                "apps/search/search-api/prod.json",
+                "apps/old/old-app/prod.json",
+                "apps/old/old-app/staging.json",
+                ".github/CODEOWNERS",
+            ],
+        )
+
+    def test_sync_keeps_released_versions(self):
+        files = dict(CAT, **{ST: json.dumps({"version": "v1.2.0", "digest": D})})
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            tree(root, files)
+            self.assertEqual(g.sync(root), [])
+            self.assertIn(D, (root / ST).read_text())
+
+
+class CatalogBranch(unittest.TestCase):
+    def test_ok(self):
+        self.assertEqual(g.check_release_pr("catalog/sync", g.BOT, ["catalog.json"]), [])
+        self.assertEqual(
+            g.check_release_pr("catalog/sync", g.BOT, ["catalog.json", ".github/CODEOWNERS", ST, PR]), []
+        )
+
+    def test_needs_catalog(self):
+        self.assertTrue(g.check_release_pr("catalog/sync", g.BOT, [".github/CODEOWNERS"]))
+
+    def test_other_files_rejected(self):
+        self.assertTrue(g.check_release_pr("catalog/sync", g.BOT, ["catalog.json", "registry.cue"]))
+        self.assertTrue(g.check_release_pr("catalog/sync", g.BOT, ["catalog.json", "schema/render.cue"]))
+
 
 if __name__ == "__main__":
     unittest.main()
