@@ -62,40 +62,10 @@ def tree(root: pathlib.Path, files: dict):
 
 
 GOOD = {
-    "registry.cue": 'import notesapi "x/apps/notes/notes-api:notesapi"\nimport a "x/clusters/alpha-01:alpha01"\n',
-    "apps/notes/notes-api/app.cue": 'app: {\n\tname: "notes-api"\n\tteam: "notes"\n}\n',
     "apps/notes/notes-api/staging.json": "{}",
     "apps/notes/notes-api/prod.json": "{}",
-    "clusters/alpha-01/cluster.cue": "",
     "clusters/alpha-01/releases.json": "{}",
 }
-
-
-class Layout(unittest.TestCase):
-    def run_layout(self, files):
-        with tempfile.TemporaryDirectory() as d:
-            tree(pathlib.Path(d), files)
-            return g.check_layout(pathlib.Path(d))
-
-    def test_good(self):
-        self.assertEqual(self.run_layout(GOOD), [])
-
-    def test_missing_file(self):
-        f = dict(GOOD)
-        del f["apps/notes/notes-api/prod.json"]
-        self.assertTrue(self.run_layout(f))
-
-    def test_not_registered(self):
-        f = dict(GOOD, **{"registry.cue": "import a \"x/clusters/alpha-01:alpha01\"\n"})
-        self.assertTrue(self.run_layout(f))
-
-    def test_name_mismatch(self):
-        f = dict(GOOD, **{"apps/notes/notes-api/app.cue": 'app: {name: "other", team: "notes"}\n'})
-        self.assertTrue(self.run_layout(f))
-
-    def test_json_must_be_object(self):
-        f = dict(GOOD, **{"apps/notes/notes-api/staging.json": "[]"})
-        self.assertTrue(self.run_layout(f))
 
 
 class Artifacts(unittest.TestCase):
@@ -136,45 +106,24 @@ class Artifacts(unittest.TestCase):
 
 
 
-REG = ["registry.cue", "apps/notes/new-app/app.cue", "apps/notes/new-app/staging.json", "apps/notes/new-app/prod.json"]
-
-
 class Register(unittest.TestCase):
     def test_devenv_update(self):
         self.assertEqual(g.check_release_pr("chore/devenv-update", g.BOT, ["devenv.lock"]), [])
         self.assertTrue(g.check_release_pr("chore/devenv-update", g.BOT, ["devenv.lock", "devenv.nix"]))
-
-    def test_register_ok(self):
-        self.assertEqual(g.check_release_pr("register/new-app", g.BOT, REG), [])
-
-    def test_register_extra_file(self):
-        self.assertTrue(g.check_release_pr("register/new-app", g.BOT, REG + ["schema/render.cue"]))
-
-    def test_register_missing_file(self):
-        self.assertTrue(g.check_release_pr("register/new-app", g.BOT, REG[:-1]))
-
-    def test_register_other_app(self):
-        self.assertTrue(g.check_release_pr("register/other", g.BOT, REG))
-
-    def test_register_two_teams(self):
-        self.assertTrue(g.check_release_pr("register/new-app", g.BOT, REG + ["apps/other/new-app/app.cue"]))
-
-    def test_registrations(self):
-        files = dict(GOOD)
-        apps = {"notes/notes-api": {"team": "notes", "repo": "homelab-selfuryon/notes-api"}}
-        with tempfile.TemporaryDirectory() as d:
-            root = pathlib.Path(d)
-            tree(root, files)
-            got = g.registrations(root, ["apps/notes/notes-api/app.cue", ST, "registry.cue"], apps)
-        self.assertEqual(got, [{"file": "apps/notes/notes-api/app.cue", "team": "notes", "repo": "homelab-selfuryon/notes-api"}])
 
     def test_registrations_catalog_lists_every_app(self):
         apps = {
             "notes/notes-api": {"team": "notes", "repo": "homelab-selfuryon/notes-api"},
             "notes/notes-stats": {"team": "notes", "repo": "homelab-selfuryon/notes-stats"},
         }
-        got = g.registrations(pathlib.Path("."), ["catalog.json", ST], apps)
+        got = g.registrations(["catalog.json", ST], apps)
         self.assertEqual([r["repo"] for r in got], ["homelab-selfuryon/notes-api", "homelab-selfuryon/notes-stats"])
+
+    def test_registrations_without_catalog_change(self):
+        self.assertEqual(g.registrations([ST], {"notes/notes-api": {"team": "notes", "repo": "x"}}), [])
+
+    def test_register_branch_is_gone(self):
+        self.assertTrue(g.check_release_pr("register/new-app", g.BOT, ["registry.cue"]))
 
 
 def catalog(*apps):
@@ -234,6 +183,11 @@ class CatalogLayout(unittest.TestCase):
 
     def test_owners_without_block(self):
         f = dict(CAT, **{".github/CODEOWNERS": OWNERS_HEAD})
+        self.assertTrue(self.run_layout(f))
+
+    def test_without_catalog(self):
+        f = dict(CAT)
+        del f["catalog.json"]
         self.assertTrue(self.run_layout(f))
 
     def test_cluster_not_imported(self):

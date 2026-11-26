@@ -6,7 +6,7 @@ name: Verify
 #   1. who changed what: a PR from the release bot touches exactly its own files
 #      (scripts/gitops_checks.py of the BASE branch, so a PR cannot weaken the check)
 #   2. layout, `cue fmt --check`, `cue vet -c`, `cue cmd render`, kubeconform on the render
-#   3. a changed registration: deploy.cue's team is the repository's `owner-team` property and the
+#   3. a changed catalog.json: each app's team is its repository's `owner-team` property and the
 #      repository has kind=app
 #   4. for every changed version file: the tag resolves to the digest, the signature, workflow
 #      identity and source repository (the registration's repo) check out
@@ -115,7 +115,7 @@ jobs:
           devenv_head bash -c 'cd ../base && cue export -e apps --out json' > "$RUNNER_TEMP/apps-base.json"
 
       # A registration says which team owns which repository. The repository's `owner-team` custom
-      # property (set by platform-terraform) is the truth: a team cannot register another team's name.
+      # property (set by platform-terraform) is the truth: the catalog cannot give a team another team's repository.
       - name: Registrations match the repository properties
         run: |
           set -euo pipefail
@@ -129,7 +129,7 @@ jobs:
             props=$(gh api "repos/${repo}/properties/values")
             owner=$(jq -r '.[] | select(.property_name == "owner-team") | .value' <<<"$props")
             kind=$(jq -r '.[] | select(.property_name == "kind") | .value' <<<"$props")
-            [[ "$owner" == "$team" ]] || { echo "::error::${repo}: deploy.cue team is '${team}', the repository's owner-team is '${owner}'"; exit 1; }
+            [[ "$owner" == "$team" ]] || { echo "::error::${repo}: catalog.json team is '${team}', the repository's owner-team is '${owner}'"; exit 1; }
             [[ "$kind" == "app" ]] || { echo "::error::${repo}: kind is '${kind}', not app"; exit 1; }
             echo "registration ${repo}: team ${team} matches owner-team, kind app"
           done < "$RUNNER_TEMP/registrations.jsonl"

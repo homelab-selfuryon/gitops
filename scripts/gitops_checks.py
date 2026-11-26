@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Checks on a gitops pull request that CUE cannot express. Standard library only.
 
-  release-pr  who may change which files: a PR opened by the release bot (release, promote, register,
+  release-pr  who may change which files: a PR opened by the release bot (release, promote,
               catalog sync, devenv-update) touches exactly the files
               its branch name announces, and nothing else
   layout      every app and cluster directory is complete and registered: apps in catalog.json
@@ -32,7 +32,6 @@ BRANCHES = [
     (re.compile(rf"^release/(?P<app>{NAME})/staging/{VERSION}$"), "staging"),
     (re.compile(rf"^promote/(?P<app>{NAME})/prod/{VERSION}$"), "prod"),
     (re.compile(rf"^release/platform-components/(?P<cluster>{NAME})$"), "components"),
-    (re.compile(rf"^register/(?P<app>{NAME})$"), "register"),
     (re.compile(r"^catalog/sync$"), "catalog"),
     (re.compile(r"^chore/devenv-update$"), "devenv"),
 ]
@@ -70,22 +69,6 @@ def check_release_pr(branch: str, author: str, files: list[str], bot: str = BOT)
                     f"version files, got: {sorted(files)}"
                 )
             return errors
-        if kind == "register":
-            # A registration: the app's three files and its import in registry.cue.
-            team_dirs = {f.split("/")[1] for f in files if f.startswith("apps/")}
-            if len(team_dirs) != 1:
-                errors.append(f"branch {branch} must register one app under one team, got: {sorted(files)}")
-                return errors
-            team = team_dirs.pop()
-            expected = {
-                "registry.cue",
-                f"apps/{team}/{m['app']}/app.cue",
-                f"apps/{team}/{m['app']}/staging.json",
-                f"apps/{team}/{m['app']}/prod.json",
-            }
-            if set(files) != expected:
-                errors.append(f"branch {branch} must change exactly {sorted(expected)}, got: {sorted(files)}")
-            return errors
         if kind == "components":
             allowed = [f for f in files if (c := CLUSTER_FILE.match(f)) and c["cluster"] == m["cluster"]]
         else:
@@ -100,7 +83,7 @@ def check_release_pr(branch: str, author: str, files: list[str], bot: str = BOT)
         return errors
     if author == bot:
         errors.append(
-            f"{bot} may only open release/<app>/staging/<version>, promote/<app>/prod/<version>, register/<app>, catalog/sync, chore/devenv-update "
+            f"{bot} may only open release/<app>/staging/<version>, promote/<app>/prod/<version>, catalog/sync, chore/devenv-update "
             f"or release/platform-components/<cluster> branches, got {branch}"
         )
     return errors
@@ -148,7 +131,7 @@ def app_dirs(root: pathlib.Path) -> list[pathlib.Path]:
 
 def check_layout(root: pathlib.Path) -> list[str]:
     if not (root / CATALOG).is_file():
-        return check_layout_registry(root)
+        return [f"{CATALOG} is missing (it comes from the `catalog` repository)"]
     errors = []
     apps = catalog_apps(root)
     dirs = {f"{p.parent.name}/{p.name}": p for p in app_dirs(root)}
@@ -222,33 +205,6 @@ def check_clusters(root: pathlib.Path) -> list[str]:
     return errors
 
 
-def check_layout_registry(root: pathlib.Path) -> list[str]:
-    """The layout before catalog.json: an app.cue per app, imported in registry.cue. Read while the
-    move to catalog.json is under review (these checks run from the base branch)."""
-    errors = []
-    registry = (root / "registry.cue").read_text()
-    for app_dir in sorted(p for p in (root / "apps").glob("*/*") if p.is_dir()):
-        team, app = app_dir.parent.name, app_dir.name
-        rel = app_dir.relative_to(root)
-        for name in ("app.cue", "staging.json", "prod.json"):
-            if not (app_dir / name).is_file():
-                errors.append(f"{rel}/{name} is missing")
-        for name in ("staging.json", "prod.json"):
-            f = app_dir / name
-            if f.is_file() and not isinstance(read_json(f), dict):
-                errors.append(f"{rel}/{name} must be a JSON object")
-        cue = app_dir / "app.cue"
-        if cue.is_file():
-            text = cue.read_text()
-            if not re.search(rf'^\s*name:\s*"{re.escape(app)}"', text, re.M):
-                errors.append(f'{rel}/app.cue: name must be "{app}" (the directory)')
-            if not re.search(rf'^\s*team:\s*"{re.escape(team)}"', text, re.M):
-                errors.append(f'{rel}/app.cue: team must be "{team}" (the directory)')
-        if f"/apps/{team}/{app}:" not in registry:
-            errors.append(f"registry.cue does not import apps/{team}/{app}")
-    return errors + check_clusters(root)
-
-
 def artifacts(root: pathlib.Path, files: list[str], apps: dict) -> list[dict]:
     """What the registry must confirm for the version files in `files` (paths relative to root).
 
@@ -301,30 +257,15 @@ def artifacts(root: pathlib.Path, files: list[str], apps: dict) -> list[dict]:
     return out
 
 
-REGISTRATION_FILE = re.compile(rf"^apps/(?P<team>{NAME})/(?P<app>{NAME})/app\.cue$")
+def registrations(files: list[str], apps: dict) -> list[dict]:
+    """Which team owns which repository, for every app, when a PR changes catalog.json.
 
-
-def registrations(root: pathlib.Path, files: list[str], apps: dict) -> list[dict]:
-    """The registrations a PR adds or changes: which team the CUE says owns which repository.
-
-    The workflow compares `team` with the repository's `owner-team` custom property. A change of
-    catalog.json lists every app (`apps` is `cue export -e apps`, keyed by <team>/<name>).
+    `apps` is `cue export -e apps`, keyed by <team>/<name>. The workflow compares `team` with the
+    repository's `owner-team` custom property (platform-terraform applies the catalog first).
     """
-    if CATALOG in files:
-        return [
-            {"file": CATALOG, "team": a["team"], "repo": a["repo"]}
-            for _, a in sorted(apps.items())
-        ]
-    out = []
-    for path in sorted(files):
-        m = REGISTRATION_FILE.match(path)
-        if not m or not (root / path).is_file():
-            continue
-        key = f"{m['team']}/{m['app']}"
-        if key not in apps:
-            raise SystemExit(f"{path}: {key} is not in registry.cue")
-        out.append({"file": path, "team": apps[key]["team"], "repo": apps[key]["repo"]})
-    return out
+    if CATALOG not in files:
+        return []
+    return [{"file": CATALOG, "team": a["team"], "repo": a["repo"]} for _, a in sorted(apps.items())]
 
 
 def main(argv=None) -> int:
@@ -349,7 +290,7 @@ def main(argv=None) -> int:
     p.add_argument("files", nargs="*")
 
     p = sub.add_parser("registrations")
-    p.add_argument("--root", default=".")
+    p.add_argument("--root", default=".", help="unused; the workflow passes it")
     p.add_argument("--apps", required=True, help="file with `cue export -e apps`")
     p.add_argument("files", nargs="*")
 
@@ -368,7 +309,7 @@ def main(argv=None) -> int:
         return 0
     elif args.cmd == "registrations":
         apps = read_json(pathlib.Path(args.apps))
-        for item in registrations(pathlib.Path(args.root), files, apps):
+        for item in registrations(files, apps):
             print(json.dumps(item))
         return 0
     else:

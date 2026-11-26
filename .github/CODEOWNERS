@@ -1,11 +1,14 @@
 # The last matching pattern wins. Rules from meta/delivery.md "gitops layout".
 
-# Everything: platform (schema, render, scripts, workflows, registration, cluster releases).
+# Everything: platform (schema, render, scripts, workflows, catalog.json, cluster releases).
 *                                  @homelab-selfuryon/platform
 
 # Staging version files have no owner: release PRs are auto-merged once the checks pass
 # (gitops-verify restricts what such a PR may touch).
 /apps/*/*/staging.json
 
-# Prod version files belong to the team that owns the app. Add a line per team.
+# Prod version files belong to the team that owns the app: one line per team with apps in
+# catalog.json. Never edit the block by hand; `scripts/gitops_checks.py sync` writes it.
+# BEGIN generated from catalog.json (scripts/gitops_checks.py sync)
 /apps/notes/*/prod.json            @homelab-selfuryon/notes
+# END generated
