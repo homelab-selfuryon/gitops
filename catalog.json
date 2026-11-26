@@ -3,12 +3,22 @@
     "notes-api": {
       "team": "notes",
       "repo": "homelab-selfuryon/notes-api",
+      "envs": [
+        "preview",
+        "staging",
+        "prod"
+      ],
       "cluster": "alpha-01",
       "preview": true
     },
     "notes-stats": {
       "team": "notes",
       "repo": "homelab-selfuryon/notes-stats",
+      "envs": [
+        "preview",
+        "staging",
+        "prod"
+      ],
       "cluster": "alpha-01",
       "preview": true
     }
