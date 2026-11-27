@@ -345,7 +345,7 @@ jobs:
     name: Lint workflows
     permissions:
       contents: read
-    uses: homelab-selfuryon/github-workflows/.github/workflows/lint-workflows.yaml@355d9b419dbbc6772aee02003b14ee1496122e98 # v1.1.1
+    uses: homelab-selfuryon/github-workflows/.github/workflows/lint-workflows.yaml@e7d5b1ed978b67aa2becd08d15d89537d11ec979 # v1.1.2
 
   # The single required status check (branch ruleset).
   final-check:
